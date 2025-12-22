@@ -193,7 +193,7 @@ void sendToggleCommand() {
     // Set the specific command ID to 'Toggle' (switch state)
     cmd_req.on_off_cmd_id = ESP_ZB_ZCL_CMD_ON_OFF_TOGGLE_ID; 
     
-    // Set destination address to 0xFFFF (Broadcast to all routers and end devices)
+    // Set destination address to 0xFFFF (Broadcast to all routers and end devices - we have only one so it works fine)
     cmd_req.zcl_basic_cmd.dst_addr_u.addr_short = 0xFFFF; 
     
     // Set the destination endpoint to 1 (Sonoff devices typically listen on endpoint 1)
