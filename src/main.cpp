@@ -33,7 +33,7 @@ bool isSoundActive = false;
 int32_t maxAmpDuringEvent = 0;
 
 // Local Website
-const char *ssid = "Project_hotspot";
+const char *ssid = "p";
 const char *password = "pwd12345";
 WebServer server(80);
 
@@ -144,15 +144,16 @@ void handleNotFound();
 // Zigbee
 void sendZigbeeCommand(uint8_t commandId);
 
+// main functions
 void setup()
 {
     Serial.begin(115200);
-
+    delay(3000);
     /* Website */
     Serial.println("\n--- SYSTEM START ---");
     Serial.print("Connecting to WiFi: ");
     Serial.println(ssid);
-
+    WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
 
     while (WiFi.status() != WL_CONNECTED)
