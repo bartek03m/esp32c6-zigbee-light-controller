@@ -200,7 +200,7 @@ void sendToggleCommand() {
     cmd_req.zcl_basic_cmd.dst_endpoint = 1; 
     
     // Print a debug message to the Serial Monitor indicating a broadcast was sent
-    Serial.println("Light Toogle (Broadcast)");
+    Serial.println("Light Toggle (Broadcast)");
     
     // Execute the Zigbee On/Off command request using the configured structure
     esp_zb_zcl_on_off_cmd_req(&cmd_req);
