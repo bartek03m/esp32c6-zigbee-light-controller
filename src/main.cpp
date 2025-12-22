@@ -7,19 +7,21 @@
 #include "esp_zigbee_core.h"
 #include "zcl/esp_zigbee_zcl_common.h"
 #include <driver/i2s.h>
+#include "esp_wifi.h"
+#include "esp_coexist.h"
 
-// PINS
+// Hardware pin definitions
 #define I2S_WS 21
 #define I2S_SD 23
 #define I2S_SCK 22
 #define I2S_PORT I2S_NUM_0
 
-/* Global const and variables */
+/* Global constants and variables */
 
-// ZigBee
+// ZigBee State
 ZigbeeSwitch *mySwitch = NULL;
 
-// Mic
+// Audio analysis constants
 const int32_t NOISE_THRESHOLD_START = 12000;     // Threshold to start analysis
 const int SILENCE_DEBOUNCE = 60;                 // How long it must be quiet to consider the clap finished
 const int MAX_CLAP_DURATION = 150;               // Above this, it's background noise
@@ -32,9 +34,9 @@ unsigned long lastLoudMoment = 0;
 bool isSoundActive = false;
 int32_t maxAmpDuringEvent = 0;
 
-// Local Website
-const char *ssid = "p";
-const char *password = "pwd12345";
+// Local Website server configuration
+const char *ssid = "";
+const char *password = "";
 WebServer server(80);
 
 // Website by Google Gemini saved in flash memory
@@ -144,16 +146,15 @@ void handleNotFound();
 // Zigbee
 void sendZigbeeCommand(uint8_t commandId);
 
-// main functions
+// Main functions
 void setup()
 {
     Serial.begin(115200);
     delay(3000);
-    /* Website */
+    /* WiFi Website */
     Serial.println("\n--- SYSTEM START ---");
     Serial.print("Connecting to WiFi: ");
     Serial.println(ssid);
-    WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
 
     while (WiFi.status() != WL_CONNECTED)
@@ -162,11 +163,12 @@ void setup()
         Serial.print(".");
     }
 
+    // IP
     Serial.println("\nWiFi Connected!");
     Serial.print("IP: ");
     Serial.println(WiFi.localIP());
 
-    // mDNS - http://light.local
+    // mDNS
     if (MDNS.begin("light"))
     {
         Serial.println("MDNS: http://light.local");
@@ -181,6 +183,10 @@ void setup()
     Serial.println("Serwer HTTP active");
 
     /* Zigbee */
+    // Set channel Zigbee to 26
+    uint32_t channel_mask = (1 << 26);
+    esp_zb_set_primary_network_channel_set(channel_mask);
+    delay(2000);
 
     // Create endpoint
     mySwitch = new ZigbeeSwitch(1);
@@ -192,14 +198,23 @@ void setup()
     if (!Zigbee.begin(ZIGBEE_COORDINATOR))
     {
         Serial.println("Zigbee start error");
-        while (1)
-            ;
     }
+    else
+    {
+        Serial.println("Zigbee started");
 
-    // Open network for new devices
-    Serial.println("Zigbee started");
-    Serial.println("Network is open for 3 min - connect your devices");
-    Zigbee.setRebootOpenNetwork(180);
+        esp_err_t coex_err = esp_coex_wifi_i154_enable();
+        if (coex_err == ESP_OK)
+        {
+            Serial.println("Coexistence hardware arbiter enabled!");
+        }
+        else
+        {
+            Serial.printf("Coex enable failed: %d\n", coex_err);
+        }
+
+        Zigbee.setRebootOpenNetwork(180);
+    }
 }
 
 void loop()
@@ -212,6 +227,12 @@ void loop()
 // Define the function responsible for sending the Zigbee toggle command
 void sendZigbeeCommand(uint8_t commandId)
 {
+    // safety check if stack is not empty
+    if (!Zigbee.connected() && commandId != ESP_ZB_ZCL_CMD_ON_OFF_TOGGLE_ID)
+    {
+        Serial.println("Zigbee not ready yet - skipping command");
+        return;
+    }
     // Declare a structure variable to hold the On/Off command request parameters
     esp_zb_zcl_on_off_cmd_t cmd_req;
 
@@ -240,6 +261,7 @@ void sendZigbeeCommand(uint8_t commandId)
     esp_zb_zcl_on_off_cmd_req(&cmd_req);
 }
 
+// Website handlers
 void handleRoot()
 {
     server.send(200, "text/html", index_html);
