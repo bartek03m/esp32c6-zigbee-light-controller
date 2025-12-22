@@ -1,10 +1,10 @@
 #include <Arduino.h>
-#include <Network.h> 
+#include <Network.h>
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
-#include <Zigbee.h> 
-#include "esp_zigbee_core.h" 
+#include <Zigbee.h>
+#include "esp_zigbee_core.h"
 #include "zcl/esp_zigbee_zcl_common.h"
 #include <driver/i2s.h>
 
@@ -14,18 +14,17 @@
 #define I2S_SCK 22
 #define I2S_PORT I2S_NUM_0
 
-
 /* Global const and variables */
 
 // ZigBee
 ZigbeeSwitch *mySwitch = NULL;
 
 // Mic
-const int32_t NOISE_THRESHOLD_START = 12000; // Threshold to start analysis
-const int SILENCE_DEBOUNCE = 60; // How long it must be quiet to consider the clap finished
-const int MAX_CLAP_DURATION = 150; // Above this, it's background noise
+const int32_t NOISE_THRESHOLD_START = 12000;     // Threshold to start analysis
+const int SILENCE_DEBOUNCE = 60;                 // How long it must be quiet to consider the clap finished
+const int MAX_CLAP_DURATION = 150;               // Above this, it's background noise
 const int32_t MIN_AMPLITUDE_FOR_IMPULSE = 12000; // If time=0ms, amplitude must be at least this high
-const int MAX_SEQUENCE_TIME = 2500; 
+const int MAX_SEQUENCE_TIME = 2500;
 int clapCount = 0;
 unsigned long firstClapTime = 0;
 unsigned long soundStartTime = 0;
@@ -34,8 +33,8 @@ bool isSoundActive = false;
 int32_t maxAmpDuringEvent = 0;
 
 // Local Website
-const char* ssid = "Project_hotspot";
-const char* password = "pwd12345";
+const char *ssid = "Project_hotspot";
+const char *password = "pwd12345";
 WebServer server(80);
 
 // Website by Google Gemini saved in flash memory
@@ -143,65 +142,122 @@ void handleLightOff();
 void handleNotFound();
 
 // Zigbee
-void sendToggleCommand();
+void sendZigbeeCommand(uint8_t commandId);
 
+void setup()
+{
+    Serial.begin(115200);
 
-void setup() {
-  Serial.begin(115200);
+    /* Website */
+    Serial.println("\n--- SYSTEM START ---");
+    Serial.print("Connecting to WiFi: ");
+    Serial.println(ssid);
 
-  /* Zigbee */
+    WiFi.begin(ssid, password);
 
-  // Create endpoint
-  mySwitch = new ZigbeeSwitch(1);
+    while (WiFi.status() != WL_CONNECTED)
+    {
+        delay(500);
+        Serial.print(".");
+    }
 
-  // Add to main Zigbee object
-  Zigbee.addEndpoint(mySwitch);
+    Serial.println("\nWiFi Connected!");
+    Serial.print("IP: ");
+    Serial.println(WiFi.localIP());
 
-  // Start as a coordinator
-  if(!Zigbee.begin(ZIGBEE_COORDINATOR)){
-    Serial.println("Zigbee start error");
-    while(1);
-  }
+    // mDNS - http://light.local
+    if (MDNS.begin("light"))
+    {
+        Serial.println("MDNS: http://light.local");
+    }
 
-  // Open network for new devices
-  Serial.println("Zigbee started");
-  Serial.println("Network is open for 3 min - connect your devices");
-  Zigbee.setRebootOpenNetwork(180); 
+    server.on("/", handleRoot);
+    server.on("/on", handleLightOn);
+    server.on("/off", handleLightOff);
+    server.onNotFound(handleNotFound);
 
+    server.begin();
+    Serial.println("Serwer HTTP active");
+
+    /* Zigbee */
+
+    // Create endpoint
+    mySwitch = new ZigbeeSwitch(1);
+
+    // Add to main Zigbee object
+    Zigbee.addEndpoint(mySwitch);
+
+    // Start as a coordinator
+    if (!Zigbee.begin(ZIGBEE_COORDINATOR))
+    {
+        Serial.println("Zigbee start error");
+        while (1)
+            ;
+    }
+
+    // Open network for new devices
+    Serial.println("Zigbee started");
+    Serial.println("Network is open for 3 min - connect your devices");
+    Zigbee.setRebootOpenNetwork(180);
 }
 
-void loop() {
-
+void loop()
+{
 }
 
-// Func definitions
+/* Func definitions */
 
 // Define the function responsible for sending the Zigbee toggle command
-void sendToggleCommand() {
+void sendZigbeeCommand(uint8_t commandId)
+{
     // Declare a structure variable to hold the On/Off command request parameters
     esp_zb_zcl_on_off_cmd_t cmd_req;
-    
+
     // Zero out the structure memory
     memset(&cmd_req, 0, sizeof(cmd_req));
 
     // Set the source endpoint to 1
-    cmd_req.zcl_basic_cmd.src_endpoint = 1; 
-    
+    cmd_req.zcl_basic_cmd.src_endpoint = 1;
+
     // Set the addressing mode to 16-bit short address with endpoint present
-    cmd_req.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT; 
-    
+    cmd_req.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
+
     // Set the specific command ID to 'Toggle' (switch state)
-    cmd_req.on_off_cmd_id = ESP_ZB_ZCL_CMD_ON_OFF_TOGGLE_ID; 
-    
+    cmd_req.on_off_cmd_id = commandId;
+
     // Set destination address to 0xFFFF (Broadcast to all routers and end devices - we have only one so it works fine)
-    cmd_req.zcl_basic_cmd.dst_addr_u.addr_short = 0xFFFF; 
-    
+    cmd_req.zcl_basic_cmd.dst_addr_u.addr_short = 0xFFFF;
+
     // Set the destination endpoint to 1 (Sonoff devices typically listen on endpoint 1)
-    cmd_req.zcl_basic_cmd.dst_endpoint = 1; 
-    
+    cmd_req.zcl_basic_cmd.dst_endpoint = 1;
+
     // Print a debug message to the Serial Monitor indicating a broadcast was sent
     Serial.println("Light Toggle (Broadcast)");
-    
+
     // Execute the Zigbee On/Off command request using the configured structure
     esp_zb_zcl_on_off_cmd_req(&cmd_req);
+}
+
+void handleRoot()
+{
+    server.send(200, "text/html", index_html);
+}
+
+void handleLightOn()
+{
+    sendZigbeeCommand(ESP_ZB_ZCL_CMD_ON_OFF_ON_ID);
+    Serial.println("Light ON");
+    server.send(200, "text/plain", "OK");
+}
+
+void handleLightOff()
+{
+    sendZigbeeCommand(ESP_ZB_ZCL_CMD_ON_OFF_OFF_ID);
+    Serial.println("Light OFF");
+    server.send(200, "text/plain", "OK");
+}
+
+void handleNotFound()
+{
+    server.send(404, "text/plain", "404: Not found");
 }
