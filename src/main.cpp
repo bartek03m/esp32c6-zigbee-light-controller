@@ -9,10 +9,10 @@
 #include <driver/i2s.h>
 
 // PINS
-#define IS2_WS 21
-#define IS2_SD 23
-#define IS2_SCK 22
-#define IS2_PORT IS2_NUM_0
+#define I2S_WS 21
+#define I2S_SD 23
+#define I2S_SCK 22
+#define I2S_PORT I2S_NUM_0
 
 
 /* Global const and variables */
@@ -134,8 +134,17 @@ const char index_html[] PROGMEM = R"rawliteral(
 </html>
 )rawliteral";
 
-// Func declarations
-//...
+/* Func declarations */
+
+// Website handlers
+void handleRoot();
+void handleLightOn();
+void handleLightOff();
+void handleNotFound();
+
+// Zigbee
+void sendToggleCommand();
+
 
 void setup() {
   
