@@ -175,4 +175,33 @@ void loop() {
 }
 
 // Func definitions
-// ...
+
+// Define the function responsible for sending the Zigbee toggle command
+void sendToggleCommand() {
+    // Declare a structure variable to hold the On/Off command request parameters
+    esp_zb_zcl_on_off_cmd_t cmd_req;
+    
+    // Zero out the structure memory
+    memset(&cmd_req, 0, sizeof(cmd_req));
+
+    // Set the source endpoint to 1
+    cmd_req.zcl_basic_cmd.src_endpoint = 1; 
+    
+    // Set the addressing mode to 16-bit short address with endpoint present
+    cmd_req.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT; 
+    
+    // Set the specific command ID to 'Toggle' (switch state)
+    cmd_req.on_off_cmd_id = ESP_ZB_ZCL_CMD_ON_OFF_TOGGLE_ID; 
+    
+    // Set destination address to 0xFFFF (Broadcast to all routers and end devices)
+    cmd_req.zcl_basic_cmd.dst_addr_u.addr_short = 0xFFFF; 
+    
+    // Set the destination endpoint to 1 (Sonoff devices typically listen on endpoint 1)
+    cmd_req.zcl_basic_cmd.dst_endpoint = 1; 
+    
+    // Print a debug message to the Serial Monitor indicating a broadcast was sent
+    Serial.println("Light Toogle (Broadcast)");
+    
+    // Execute the Zigbee On/Off command request using the configured structure
+    esp_zb_zcl_on_off_cmd_req(&cmd_req);
+}
