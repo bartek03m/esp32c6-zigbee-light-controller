@@ -147,7 +147,27 @@ void sendToggleCommand();
 
 
 void setup() {
-  
+  Serial.begin(115200);
+
+  /* Zigbee */
+
+  // Create endpoint
+  mySwitch = new ZigbeeSwitch(1);
+
+  // Add to main Zigbee object
+  Zigbee.addEndpoint(mySwitch);
+
+  // Start as a coordinator
+  if(!Zigbee.begin(ZIGBEE_COORDINATOR)){
+    Serial.println("Zigbee start error");
+    while(1);
+  }
+
+  // Open network for new devices
+  Serial.println("Zigbee started");
+  Serial.println("Network is open for 3 min - connect your devices");
+  Zigbee.setRebootOpenNetwork(180); 
+
 }
 
 void loop() {
