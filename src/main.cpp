@@ -4,9 +4,9 @@
 #include <ESPmDNS.h>
 #include <WebServer.h>
 #include <Zigbee.h>
+#include <driver/i2s.h>
 #include "esp_zigbee_core.h"
 #include "zcl/esp_zigbee_zcl_common.h"
-#include <driver/i2s.h>
 #include "esp_wifi.h"
 #include "esp_coexist.h"
 
@@ -15,11 +15,13 @@
 #define I2S_SD 23
 #define I2S_SCK 22
 #define I2S_PORT I2S_NUM_0
+#define BUTTON_PIN 9
+#define LED_PIN 15
 
 /* Global constants and variables */
 
 // ZigBee State
-ZigbeeSwitch *mySwitch = NULL;
+ZigbeeEP *myEP = NULL;
 
 // Audio analysis constants
 const int32_t NOISE_THRESHOLD_START = 12000;     // Threshold to start analysis
@@ -84,7 +86,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
         <header>
             <div><h1>SYSTEM OŚWIETLENIA</h1><div style="font-size: 10px; color: var(--primary);">SEKCJA: POKÓJ JULI</div></div>
-            <div class="sys-data"><div id="clock">00:00:00</div><div>NET: <span style="color:var(--primary)">CONNECTED</span></div></div>
+            <div class="sys-data"><div id="clock">00:00:00</div></div>
         </header>
         <div class="main-display">
             <div class="reactor-core" id="reactor"><div class="reactor-ring"></div><div class="reactor-inner"></div></div>
@@ -94,7 +96,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             <button class="btn btn-on" onclick="setPower(true)">AKTYWUJ</button>
             <button class="btn btn-off" onclick="setPower(false)">DEZAKTYWUJ</button>
         </div>
-        <footer><div>SYS.VER. 25.08</div><div><span class="blink">▮</span> READY</div></footer>
+        <footer><div>SYS.VER. 25.08</div><div><span class="blink">▮</span></div></footer>
     </div>
     <script>
         function updateClock() { const now = new Date(); document.getElementById('clock').textContent = now.toLocaleTimeString('pl-PL', { hour12: false }); if(Math.random() > 0.9) document.querySelector('.sys-data div:last-child').style.opacity = Math.random(); }
@@ -108,13 +110,11 @@ const char index_html[] PROGMEM = R"rawliteral(
                 reactor.classList.add('active');
                 txtOn.style.display = 'inline'; txtOff.style.display = 'none';
                 playSound(440, 'triangle');
-                // TUTA WYSYLAMY SYGNAL DO ESP32
                 fetch('/on').catch(e => console.log('Blad polaczenia'));
             } else {
                 reactor.classList.remove('active');
                 txtOn.style.display = 'none'; txtOff.style.display = 'inline';
                 playSound(150, 'sawtooth');
-                // TUTA WYSYLAMY SYGNAL DO ESP32
                 fetch('/off').catch(e => console.log('Blad polaczenia'));
             }
         }
@@ -149,29 +149,75 @@ void sendZigbeeCommand(uint8_t commandId);
 // Main functions
 void setup()
 {
-    Serial.begin(115200);
-    delay(3000);
+    // If u want serial just replace // Serial. to Serial.
+    // Serial.begin(115200);
+    delay(2000);
+    pinMode(BUTTON_PIN, INPUT_PULLUP); // Boot button for pairing mode
+    pinMode(LED_PIN, OUTPUT);          // LED to let user know about pairing mode
+    bool pairing = false;
+    if (digitalRead(BUTTON_PIN) == LOW) // if u press the button during boot, enable pairing mode
+    {
+        pairing = true;
+    }
+
+    /* Zigbee */
+    // Set channel Zigbee to 25
+    uint32_t channel_mask = (1 << 25);
+    Zigbee.setPrimaryChannelMask(channel_mask);
+    delay(2000);
+
+    // Create endpoint
+    myEP = new ZigbeeEP(1);
+
+    // Add to main Zigbee object
+    Zigbee.addEndpoint(myEP);
+
+    // Start as a coordinator
+    if (!Zigbee.begin(ZIGBEE_COORDINATOR, pairing))
+    {
+        // Serial.println("Zigbee start error");
+        while (1)
+            delay(100);
+    }
+    // Serial.println("Zigbee started");
+    //  coexistence WiFi + Zigbee
+    esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+    esp_err_t coex_err = esp_coex_wifi_i154_enable();
+
+    if (pairing)
+    {
+        Zigbee.openNetwork(30); // Open network for 30 seconds
+        digitalWrite(LED_PIN, HIGH);
+        delay(30000);
+        digitalWrite(LED_PIN, LOW);
+    }
+    delay(2000);
+
     /* WiFi Website */
-    Serial.println("\n--- SYSTEM START ---");
-    Serial.print("Connecting to WiFi: ");
-    Serial.println(ssid);
+    WiFi.mode(WIFI_STA);
+    // Serial.println("\n--- SYSTEM START ---");
+    // Serial.print("Connecting to WiFi: ");
+    // Serial.println(ssid);
     WiFi.begin(ssid, password);
+
+    WiFi.setSleep(false);
+    esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
 
     while (WiFi.status() != WL_CONNECTED)
     {
         delay(500);
-        Serial.print(".");
+        // Serial.print(".");
     }
 
     // IP
-    Serial.println("\nWiFi Connected!");
-    Serial.print("IP: ");
-    Serial.println(WiFi.localIP());
+    // Serial.println("\nWiFi Connected!");
+    // Serial.print("IP: ");
+    // Serial.println(WiFi.localIP());
 
     // mDNS
     if (MDNS.begin("light"))
     {
-        Serial.println("MDNS: http://light.local");
+        // Serial.println("MDNS: http://light.local");
     }
 
     server.on("/", handleRoot);
@@ -180,46 +226,13 @@ void setup()
     server.onNotFound(handleNotFound);
 
     server.begin();
-    Serial.println("Serwer HTTP active");
-
-    /* Zigbee */
-    // Set channel Zigbee to 26
-    uint32_t channel_mask = (1 << 26);
-    esp_zb_set_primary_network_channel_set(channel_mask);
-    delay(2000);
-
-    // Create endpoint
-    mySwitch = new ZigbeeSwitch(1);
-
-    // Add to main Zigbee object
-    Zigbee.addEndpoint(mySwitch);
-
-    // Start as a coordinator
-    if (!Zigbee.begin(ZIGBEE_COORDINATOR))
-    {
-        Serial.println("Zigbee start error");
-    }
-    else
-    {
-        Serial.println("Zigbee started");
-
-        esp_err_t coex_err = esp_coex_wifi_i154_enable();
-        if (coex_err == ESP_OK)
-        {
-            Serial.println("Coexistence hardware arbiter enabled!");
-        }
-        else
-        {
-            Serial.printf("Coex enable failed: %d\n", coex_err);
-        }
-
-        Zigbee.setRebootOpenNetwork(180);
-    }
+    // Serial.println("Serwer HTTP active");
 }
 
 void loop()
 {
     server.handleClient();
+    delay(5);
 }
 
 /* Func definitions */
@@ -227,12 +240,6 @@ void loop()
 // Define the function responsible for sending the Zigbee toggle command
 void sendZigbeeCommand(uint8_t commandId)
 {
-    // safety check if stack is not empty
-    if (!Zigbee.connected() && commandId != ESP_ZB_ZCL_CMD_ON_OFF_TOGGLE_ID)
-    {
-        Serial.println("Zigbee not ready yet - skipping command");
-        return;
-    }
     // Declare a structure variable to hold the On/Off command request parameters
     esp_zb_zcl_on_off_cmd_t cmd_req;
 
@@ -254,11 +261,13 @@ void sendZigbeeCommand(uint8_t commandId)
     // Set the destination endpoint to 1 (Sonoff devices typically listen on endpoint 1)
     cmd_req.zcl_basic_cmd.dst_endpoint = 1;
 
-    // Print a debug message to the Serial Monitor indicating a broadcast was sent
-    Serial.println("Light Toggle (Broadcast)");
-
     // Execute the Zigbee On/Off command request using the configured structure
+    esp_zb_lock_acquire(portMAX_DELAY);
     esp_zb_zcl_on_off_cmd_req(&cmd_req);
+    esp_zb_lock_release();
+
+    // Print a debug message to the Serial Monitor indicating a broadcast was sent
+    // Serial.println("Light Toggle (Broadcast)");
 }
 
 // Website handlers
@@ -270,14 +279,14 @@ void handleRoot()
 void handleLightOn()
 {
     sendZigbeeCommand(ESP_ZB_ZCL_CMD_ON_OFF_ON_ID);
-    Serial.println("Light ON");
+    // Serial.println("Light ON");
     server.send(200, "text/plain", "OK");
 }
 
 void handleLightOff()
 {
     sendZigbeeCommand(ESP_ZB_ZCL_CMD_ON_OFF_OFF_ID);
-    Serial.println("Light OFF");
+    // Serial.println("Light OFF");
     server.send(200, "text/plain", "OK");
 }
 
