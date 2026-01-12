@@ -21,17 +21,20 @@
 
 /* Global constants and variables */
 
+// light state
+bool lightState = false;
+
 // ZigBee State
 ZigbeeEP *myEP = NULL;
 uint16_t targetZigbeeAddress = 0xFFFF; // Default to broadcast address
 Preferences preferences;               // Preferences for storing settings
 
 // Audio analysis constants
-const int32_t NOISE_THRESHOLD_START = 12000;     // Threshold to start analysis
-const int SILENCE_DEBOUNCE = 60;                 // How long it must be quiet to consider the clap finished
-const int MAX_CLAP_DURATION = 150;               // Above this, it's background noise
-const int32_t MIN_AMPLITUDE_FOR_IMPULSE = 12000; // If time=0ms, amplitude must be at least this high
-const int MAX_SEQUENCE_TIME = 2500;
+const int32_t NOISE_THRESHOLD_START = 4000;     // Threshold to start analysis
+const int SILENCE_DEBOUNCE = 60;                // How long it must be quiet to consider the clap finished
+const int MAX_CLAP_DURATION = 200;              // Above this, it's background noise
+const int32_t MIN_AMPLITUDE_FOR_IMPULSE = 4000; // If time=0ms, amplitude must be at least this high
+const int MAX_SEQUENCE_TIME = 5000;
 int clapCount = 0;
 unsigned long firstClapTime = 0;
 unsigned long soundStartTime = 0;
@@ -154,7 +157,7 @@ void updateTargetAddress();
 void setup()
 {
     // If u want serial just replace // Serial. to Serial.
-    // Serial.begin(115200);
+    Serial.begin(115200);
 
     // Preferences init
     preferences.begin("zb_config", false);
@@ -247,8 +250,8 @@ void setup()
         .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
         .communication_format = I2S_COMM_FORMAT_STAND_I2S,
         .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
-        .dma_buf_count = 4,
-        .dma_buf_len = 512,
+        .dma_buf_count = 8,
+        .dma_buf_len = 256,
         .use_apll = false,
         .tx_desc_auto_clear = false,
         .fixed_mclk = 0};
@@ -261,13 +264,13 @@ void setup()
 
     i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL);
     i2s_set_pin(I2S_PORT, &pin_config);
+    i2s_start(I2S_PORT);
 }
 
 void loop()
 {
     server.handleClient();
     updateTargetAddress();
-    delay(5);
 
     int32_t sample = 0;
     size_t bytes_read = 0;
@@ -330,6 +333,18 @@ void loop()
                 if (clapCount == 3)
                 {
                     Serial.println("!!! ACTION !!!");
+                    lightState = !lightState;
+
+                    if (lightState)
+                    {
+                        sendZigbeeCommand(ESP_ZB_ZCL_CMD_ON_OFF_ON_ID);
+                        Serial.println("Sending Zigbee ON");
+                    }
+                    else
+                    {
+                        sendZigbeeCommand(ESP_ZB_ZCL_CMD_ON_OFF_OFF_ID);
+                        Serial.println("Sending Zigbee OFF");
+                    }
                     clapCount = 0;
                     delay(1500);
                 }
@@ -418,6 +433,7 @@ void handleRoot()
 void handleLightOn()
 {
     sendZigbeeCommand(ESP_ZB_ZCL_CMD_ON_OFF_ON_ID);
+    lightState = true;
     // Serial.println("Light ON");
     server.send(200, "text/plain", "OK");
 }
@@ -425,6 +441,7 @@ void handleLightOn()
 void handleLightOff()
 {
     sendZigbeeCommand(ESP_ZB_ZCL_CMD_ON_OFF_OFF_ID);
+    lightState = false;
     // Serial.println("Light OFF");
     server.send(200, "text/plain", "OK");
 }
