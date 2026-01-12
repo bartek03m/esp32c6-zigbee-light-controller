@@ -9,6 +9,7 @@
 #include "zcl/esp_zigbee_zcl_common.h"
 #include "esp_wifi.h"
 #include "esp_coexist.h"
+#include <Preferences.h>
 
 // Hardware pin definitions
 #define I2S_WS 21
@@ -22,6 +23,8 @@
 
 // ZigBee State
 ZigbeeEP *myEP = NULL;
+uint16_t targetZigbeeAddress = 0xFFFF; // Default to broadcast address
+Preferences preferences;               // Preferences for storing settings
 
 // Audio analysis constants
 const int32_t NOISE_THRESHOLD_START = 12000;     // Threshold to start analysis
@@ -145,13 +148,21 @@ void handleNotFound();
 
 // Zigbee
 void sendZigbeeCommand(uint8_t commandId);
+void updateTargetAddress();
 
-// Main functions
+/* Main functions */
 void setup()
 {
     // If u want serial just replace // Serial. to Serial.
     // Serial.begin(115200);
+
+    // Preferences init
+    preferences.begin("zb_config", false);
+    // Read stored target address, default to broadcast if not set
+    targetZigbeeAddress = preferences.getUShort("addr", 0xFFFF);
+
     delay(2000);
+
     pinMode(BUTTON_PIN, INPUT_PULLUP); // Boot button for pairing mode
     pinMode(LED_PIN, OUTPUT);          // LED to let user know about pairing mode
     bool pairing = false;
@@ -180,7 +191,7 @@ void setup()
             delay(100);
     }
     // Serial.println("Zigbee started");
-    //  coexistence WiFi + Zigbee
+    // coexistence WiFi + Zigbee
     esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
     esp_err_t coex_err = esp_coex_wifi_i154_enable();
 
@@ -232,10 +243,36 @@ void setup()
 void loop()
 {
     server.handleClient();
+    updateTargetAddress();
     delay(5);
 }
 
 /* Func definitions */
+
+void updateTargetAddress()
+{
+    // We check if we have an endpoint created
+    if (myEP != NULL)
+    {
+        // Get the list of bound devices from the endpoint
+        std::list<zb_device_params_t *> devices = myEP->getBoundDevices();
+
+        if (!devices.empty())
+        {
+            // Get the first device from the list
+            zb_device_params_t *device = devices.front();
+
+            // If the device has a valid short address, update our target address
+            if (device->short_addr != 0 && device->short_addr != 0xFFFF && device->short_addr != targetZigbeeAddress)
+            {
+                targetZigbeeAddress = device->short_addr;
+
+                // Store the new target address in preferences
+                preferences.putUShort("addr", targetZigbeeAddress);
+            }
+        }
+    }
+}
 
 // Define the function responsible for sending the Zigbee toggle command
 void sendZigbeeCommand(uint8_t commandId)
@@ -249,14 +286,25 @@ void sendZigbeeCommand(uint8_t commandId)
     // Set the source endpoint to 1
     cmd_req.zcl_basic_cmd.src_endpoint = 1;
 
-    // Set the addressing mode to 16-bit short address with endpoint present
-    cmd_req.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
+    // Set the addressing mode depending on address type
+    if (targetZigbeeAddress == 0xFFFF)
+    {
+        // Broadcast if we don't know the Sonoff address yet
+        cmd_req.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
+        // Serial.println("Sending BROADCAST (0xFFFF)");
+    }
+    else
+    {
+        // Unicast if we have a specific Sonoff address
+        cmd_req.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
+        // Serial.printf("Sending UNICAST to 0x%04x\n", targetZigbeeAddress);
+    }
 
     // Set the specific command ID to 'Toggle' (switch state)
     cmd_req.on_off_cmd_id = commandId;
 
     // Set destination address to 0xFFFF (Broadcast to all routers and end devices - we have only one so it works fine)
-    cmd_req.zcl_basic_cmd.dst_addr_u.addr_short = 0xFFFF;
+    cmd_req.zcl_basic_cmd.dst_addr_u.addr_short = targetZigbeeAddress;
 
     // Set the destination endpoint to 1 (Sonoff devices typically listen on endpoint 1)
     cmd_req.zcl_basic_cmd.dst_endpoint = 1;
