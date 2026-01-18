@@ -42,7 +42,7 @@ void processAudio()
     // Reset sequence if too long
     if (clapCount > 0 && (millis() - firstClapTime > MAX_SEQUENCE_TIME))
     {
-        // Serial.println(">> Timeout. Reset.");
+        // Serial.println("Timeout. Reset.");
         clapCount = 0;
     }
 
