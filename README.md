@@ -12,7 +12,8 @@ I built this because my girlfriend, Jula, is too lazy to get out of bed to turn 
 
 ## ⚡ Hardware Setup & Wiring (Important!)
 Before flashing, ensure your hardware is set up correctly:
-1. Microphone Connection: Connect the SEN0327 to the Beetle ESP32-C6 - refer to the provided schematic/image.
+1. Microphone Connection: Connect the SEN0327 to the Beetle ESP32-C6 - refer to the provided schematic/image below:
+    <br><img src="./doc/connection_scheme.png" alt="Connection Scheme" width="600"/>
 2. Sonoff Installation:
     * WARNING: The Sonoff ZBMINI-L2 involves working with High Voltage (110V/230V).
     * It must be installed behind your wall switch or near the light bulb.
