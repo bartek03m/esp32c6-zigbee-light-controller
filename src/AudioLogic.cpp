@@ -5,6 +5,17 @@
 #include <driver/i2s.h>
 #include "zcl/esp_zigbee_zcl_common.h"
 
+// Buffer for batch reading audio samples
+static const int AUDIO_BATCH_SIZE = 256;
+static int32_t sampleBuffer[AUDIO_BATCH_SIZE];
+
+// Non-blocking cooldown after successful clap toggle
+static unsigned long lastToggleTime = 0;
+static const unsigned long TOGGLE_COOLDOWN = 1500;
+
+// FreeRTOS task handle
+static TaskHandle_t audioTaskHandle = NULL;
+
 // Initialize I2S microphone
 void initAudio()
 {
@@ -33,87 +44,130 @@ void initAudio()
     i2s_start(I2S_PORT);
 }
 
-// Main audio loop: detect amplitude and claps
-void processAudio()
+// Dedicated FreeRTOS task for audio processing
+// Runs on its own core, never blocked by WiFi/Zigbee
+void audioTask(void *parameter)
 {
-    int32_t sample = 0;
-    size_t bytes_read = 0;
-
-    // Reset sequence if too long
-    if (clapCount > 0 && (millis() - firstClapTime > MAX_SEQUENCE_TIME))
+    while (true)
     {
-        // Serial.println("Timeout. Reset.");
-        clapCount = 0;
-    }
-
-    // Read audio data
-    i2s_read(I2S_PORT, &sample, sizeof(sample), &bytes_read, 0);
-
-    if (bytes_read > 0)
-    {
-        int32_t raw = sample >> 14;
-        int amplitude = abs(raw);
-
-        // Noise gate
-        if (amplitude > NOISE_THRESHOLD_START)
+        // Non-blocking cooldown — skip processing but keep reading to drain buffers
+        if (lastToggleTime > 0 && (millis() - lastToggleTime < TOGGLE_COOLDOWN))
         {
-            if (!isSoundActive)
-            {
-                isSoundActive = true;
-                soundStartTime = millis();
-                maxAmpDuringEvent = amplitude;
-            }
+            // Drain the I2S buffer to prevent overflow during cooldown
+            size_t bytes_read = 0;
+            i2s_read(I2S_PORT, sampleBuffer, sizeof(sampleBuffer), &bytes_read, portMAX_DELAY);
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
+        lastToggleTime = 0;
 
-            lastLoudMoment = millis();
-
-            if (amplitude > maxAmpDuringEvent)
-            {
-                maxAmpDuringEvent = amplitude;
-            }
+        // Reset clap sequence if too long
+        if (clapCount > 0 && (millis() - firstClapTime > MAX_SEQUENCE_TIME))
+        {
+            clapCount = 0;
         }
 
-        // Silence detected - analyze duration
-        if (isSoundActive && (millis() - lastLoudMoment > SILENCE_DEBOUNCE))
+        // Read a full batch of audio samples (blocking — waits for data, which is fine in a dedicated task)
+        size_t bytes_read = 0;
+        i2s_read(I2S_PORT, sampleBuffer, sizeof(sampleBuffer), &bytes_read, portMAX_DELAY);
+
+        if (bytes_read > 0)
         {
-            unsigned long duration = lastLoudMoment - soundStartTime;
-            isSoundActive = false;
+            int samplesRead = bytes_read / sizeof(int32_t);
 
-            bool validClap = false;
-
-            // Check if it looks like a clap
-            if (duration >= 5 && duration <= MAX_CLAP_DURATION)
+            // Find the maximum amplitude in this batch
+            int maxAmplitude = 0;
+            for (int i = 0; i < samplesRead; i++)
             {
-                validClap = true;
-            }
-            else if (duration < 5 && maxAmpDuringEvent > MIN_AMPLITUDE_FOR_IMPULSE)
-            {
-                validClap = true;
-            }
-
-            // Valid clap detected
-            if (validClap)
-            {
-                clapCount++;
-                if (clapCount == 1)
-                    firstClapTime = millis();
-
-                // If 3 claps, toggle light
-                if (clapCount == 3)
+                int32_t raw = sampleBuffer[i] >> 14;
+                int amplitude = abs(raw);
+                if (amplitude > maxAmplitude)
                 {
-                    lightState = !lightState;
+                    maxAmplitude = amplitude;
+                }
+            }
 
-                    if (lightState)
+            // Noise gate — check if the max amplitude in batch crosses threshold
+            if (maxAmplitude > NOISE_THRESHOLD_START)
+            {
+                if (!isSoundActive)
+                {
+                    isSoundActive = true;
+                    soundStartTime = millis();
+                    maxAmpDuringEvent = maxAmplitude;
+                }
+
+                lastLoudMoment = millis();
+
+                if (maxAmplitude > maxAmpDuringEvent)
+                {
+                    maxAmpDuringEvent = maxAmplitude;
+                }
+            }
+
+            // Silence detected — analyze duration
+            if (isSoundActive && (millis() - lastLoudMoment > SILENCE_DEBOUNCE))
+            {
+                unsigned long duration = lastLoudMoment - soundStartTime;
+                isSoundActive = false;
+
+                bool validClap = false;
+
+                // Check if it looks like a clap
+                if (duration >= 5 && duration <= MAX_CLAP_DURATION)
+                {
+                    validClap = true;
+                }
+                else if (duration < 5 && maxAmpDuringEvent > MIN_AMPLITUDE_FOR_IMPULSE)
+                {
+                    validClap = true;
+                }
+
+                // Valid clap detected
+                if (validClap)
+                {
+                    clapCount++;
+                    if (clapCount == 1)
+                        firstClapTime = millis();
+
+                    // If 3 claps, toggle light
+                    if (clapCount == 3)
                     {
-                        sendZigbeeCommand(ESP_ZB_ZCL_CMD_ON_OFF_ON_ID);
+                        lightState = !lightState;
+
+                        if (lightState)
+                        {
+                            sendZigbeeCommand(ESP_ZB_ZCL_CMD_ON_OFF_ON_ID);
+                        }
+                        else
+                        {
+                            sendZigbeeCommand(ESP_ZB_ZCL_CMD_ON_OFF_OFF_ID);
+                        }
+                        clapCount = 0;
+                        // Non-blocking cooldown instead of delay(1500)
+                        lastToggleTime = millis();
                     }
-                    else
-                    {
-                        sendZigbeeCommand(ESP_ZB_ZCL_CMD_ON_OFF_OFF_ID);
-                    }
-                    clapCount = 0;
-                    delay(1500);
                 }
             }
         }
+
+        // Small yield to let other tasks breathe (1ms)
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
+}
+
+// Start the audio processing task
+// ESP32-C6 is single-core, but FreeRTOS preemptive scheduling ensures
+// this task runs independently from the main loop (WiFi/Zigbee).
+// The RTOS scheduler switches between tasks, so audio never gets starved.
+void startAudioTask()
+{
+    xTaskCreate(
+        audioTask,        // Task function
+        "AudioTask",      // Name
+        4096,             // Stack size (bytes)
+        NULL,             // Parameter
+        2,                // Priority (higher than loop task = 1, so audio gets served first)
+        &audioTaskHandle  // Task handle
+    );
 }

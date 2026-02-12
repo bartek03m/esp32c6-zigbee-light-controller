@@ -12,6 +12,7 @@ void setup()
     initZigbee(); // Initialize Zigbee stack
     initWiFi();   // Initialize WiFi and Web Server
     initAudio();  // Initialize Audio I2S
+    startAudioTask(); // Start audio on a dedicated FreeRTOS task (core 0)
 }
 
 // Main processing loop
@@ -19,5 +20,4 @@ void loop()
 {
     server.handleClient(); // Handle HTTP requests
     updateTargetAddress(); // Check for Zigbee device updates
-    processAudio();        // Process audio stream
 }

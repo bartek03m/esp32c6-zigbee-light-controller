@@ -4,5 +4,5 @@
 // Initialize I2S microphone driver
 void initAudio();
 
-// Main audio processing function
-void processAudio();
+// Start dedicated FreeRTOS task for audio processing
+void startAudioTask();
