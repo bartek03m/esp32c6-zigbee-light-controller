@@ -5,11 +5,11 @@
 #include <driver/i2s.h>
 #include "zcl/esp_zigbee_zcl_common.h"
 
-// Buffer for batch reading audio samples
+// Audio sample buffer
 static const int AUDIO_BATCH_SIZE = 256;
 static int32_t sampleBuffer[AUDIO_BATCH_SIZE];
 
-// Non-blocking cooldown after successful clap toggle
+// Cooldown after toggling
 static unsigned long lastToggleTime = 0;
 static const unsigned long TOGGLE_COOLDOWN = 1500;
 
@@ -45,12 +45,11 @@ void initAudio()
 }
 
 // Dedicated FreeRTOS task for audio processing
-// Runs on its own core, never blocked by WiFi/Zigbee
 void audioTask(void *parameter)
 {
     while (true)
     {
-        // Non-blocking cooldown — skip processing but keep reading to drain buffers
+        // Still in cooldown, just drain the buffer
         if (lastToggleTime > 0 && (millis() - lastToggleTime < TOGGLE_COOLDOWN))
         {
             // Drain the I2S buffer to prevent overflow during cooldown
@@ -67,7 +66,7 @@ void audioTask(void *parameter)
             clapCount = 0;
         }
 
-        // Read a full batch of audio samples (blocking — waits for data, which is fine in a dedicated task)
+        // Read audio samples
         size_t bytes_read = 0;
         i2s_read(I2S_PORT, sampleBuffer, sizeof(sampleBuffer), &bytes_read, portMAX_DELAY);
 
@@ -75,7 +74,7 @@ void audioTask(void *parameter)
         {
             int samplesRead = bytes_read / sizeof(int32_t);
 
-            // Find the maximum amplitude in this batch
+            // Find peak amplitude
             int maxAmplitude = 0;
             for (int i = 0; i < samplesRead; i++)
             {
@@ -87,8 +86,8 @@ void audioTask(void *parameter)
                 }
             }
 
-            // Noise gate — check if the max amplitude in batch crosses threshold
-            if (maxAmplitude > NOISE_THRESHOLD_START)
+            // Check if loud enough
+            if (maxAmplitude > micSensitivity)
             {
                 if (!isSoundActive)
                 {
@@ -105,7 +104,7 @@ void audioTask(void *parameter)
                 }
             }
 
-            // Silence detected — analyze duration
+            // Silence after sound event
             if (isSoundActive && (millis() - lastLoudMoment > SILENCE_DEBOUNCE))
             {
                 unsigned long duration = lastLoudMoment - soundStartTime;
@@ -118,7 +117,7 @@ void audioTask(void *parameter)
                 {
                     validClap = true;
                 }
-                else if (duration < 5 && maxAmpDuringEvent > MIN_AMPLITUDE_FOR_IMPULSE)
+                else if (duration < 5 && maxAmpDuringEvent > micSensitivity)
                 {
                     validClap = true;
                 }
@@ -144,7 +143,7 @@ void audioTask(void *parameter)
                             sendZigbeeCommand(ESP_ZB_ZCL_CMD_ON_OFF_OFF_ID);
                         }
                         clapCount = 0;
-                        // Non-blocking cooldown instead of delay(1500)
+                        // Start cooldown
                         lastToggleTime = millis();
                     }
                 }
@@ -156,10 +155,7 @@ void audioTask(void *parameter)
     }
 }
 
-// Start the audio processing task
-// ESP32-C6 is single-core, but FreeRTOS preemptive scheduling ensures
-// this task runs independently from the main loop (WiFi/Zigbee).
-// The RTOS scheduler switches between tasks, so audio never gets starved.
+// Start audio task so it doesn't get blocked by WiFi/Zigbee
 void startAudioTask()
 {
     xTaskCreate(

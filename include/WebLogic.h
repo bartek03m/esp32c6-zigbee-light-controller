@@ -8,4 +8,6 @@ void initWiFi();
 void handleRoot();
 void handleLightOn();
 void handleLightOff();
+void handleSensitivity();
+void handleStatus();
 void handleNotFound();

@@ -18,3 +18,4 @@ extern unsigned long soundStartTime;
 extern unsigned long lastLoudMoment;
 extern bool isSoundActive;
 extern int32_t maxAmpDuringEvent;
+extern int32_t micSensitivity;

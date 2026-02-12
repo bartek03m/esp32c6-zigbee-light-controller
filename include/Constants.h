@@ -11,10 +11,8 @@
 #define LED_PIN 15
 
 // Audio analysis constants
-static const int32_t NOISE_THRESHOLD_START = 3500;     // Threshold to start analysis
 static const int SILENCE_DEBOUNCE = 60;                // How long it must be quiet to consider the clap finished
 static const int MAX_CLAP_DURATION = 200;              // Above this, it's background noise
-static const int32_t MIN_AMPLITUDE_FOR_IMPULSE = 3500; // If time=0ms, amplitude must be at least this high
 static const int MAX_SEQUENCE_TIME = 5000;
 
 // WiFi credentials
