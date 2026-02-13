@@ -8,15 +8,18 @@
 #include "esp_coexist.h"
 #include <list>
 
-// IEEE (MAC) address of paired device never changes unlike short address
 static esp_zb_ieee_addr_t savedIeeeAddr = {0};
 static uint8_t savedEndpoint = 1;
 static bool hasSavedDevice = false;
 
-// Thread safety: mutex + throttle between commands
+// Thread safety: mutex prevents audio task and web handler from colliding
 static SemaphoreHandle_t zbCmdMutex = NULL;
 static unsigned long lastCmdTime = 0;
 static const unsigned long MIN_CMD_INTERVAL = 300; // min 300ms between commands
+
+// Retry config: ON/OFF are idempotent so retries are safe
+static const int MAX_RETRIES = 3;
+static const int RETRY_DELAY_MS = 150;
 
 // Helper: print IEEE address
 static void printIeeeAddr(const char *prefix, const esp_zb_ieee_addr_t addr)
@@ -35,6 +38,23 @@ static bool isZeroAddr(const esp_zb_ieee_addr_t addr)
             return false;
     }
     return true;
+}
+
+// Helper: send a single ZCL ON/OFF command
+static void sendSingleCmd(uint8_t commandId)
+{
+    if (commandId == ESP_ZB_ZCL_CMD_ON_OFF_ON_ID)
+    {
+        mySwitch->lightOn(savedEndpoint, savedIeeeAddr);
+    }
+    else if (commandId == ESP_ZB_ZCL_CMD_ON_OFF_OFF_ID)
+    {
+        mySwitch->lightOff(savedEndpoint, savedIeeeAddr);
+    }
+    else
+    {
+        mySwitch->lightToggle(savedEndpoint, savedIeeeAddr);
+    }
 }
 
 // Setup Zigbee, pairing button, and preferences
@@ -139,7 +159,7 @@ void initZigbee()
 }
 
 // Send ON/OFF command using permanent IEEE address
-// Thread-safe: mutex prevents audio task and web handler from colliding
+// Thread-safe with mutex, retries 3x, boosts Zigbee radio priority during send
 void sendZigbeeCommand(uint8_t commandId)
 {
     if (!hasSavedDevice)
@@ -155,7 +175,7 @@ void sendZigbeeCommand(uint8_t commandId)
         return;
     }
 
-    // Throttle: wait if last command was sent less than 300ms ago
+    // Throttle: min 300ms between commands
     unsigned long now = millis();
     unsigned long elapsed = now - lastCmdTime;
     if (elapsed < MIN_CMD_INTERVAL)
@@ -166,23 +186,26 @@ void sendZigbeeCommand(uint8_t commandId)
     Serial.printf("[ZB-CMD] Sending cmd=%d via IEEE ep=%d | heap=%u | t=%lus\n",
                   commandId, savedEndpoint, esp_get_free_heap_size(), millis() / 1000);
 
-    // Use IEEE (MAC) address
-    if (commandId == ESP_ZB_ZCL_CMD_ON_OFF_ON_ID)
+    // Temporarily boost Zigbee radio priority over WiFi
+    esp_coex_preference_set(ESP_COEX_PREFER_BT);
+
+    // Send command with retries (ON/OFF are idempotent — retries are safe)
+    for (int attempt = 0; attempt < MAX_RETRIES; attempt++)
     {
-        mySwitch->lightOn(savedEndpoint, savedIeeeAddr);
+        sendSingleCmd(commandId);
+
+        if (attempt < MAX_RETRIES - 1)
+        {
+            delay(RETRY_DELAY_MS); // wait between retries
+        }
     }
-    else if (commandId == ESP_ZB_ZCL_CMD_ON_OFF_OFF_ID)
-    {
-        mySwitch->lightOff(savedEndpoint, savedIeeeAddr);
-    }
-    else
-    {
-        mySwitch->lightToggle(savedEndpoint, savedIeeeAddr);
-    }
+
+    // Restore balanced coexistence
+    esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
 
     lastCmdTime = millis();
-    Serial.println("[ZB-CMD] Command sent OK (IEEE unicast)");
+    Serial.printf("[ZB-CMD] Sent %dx OK (IEEE unicast)\n", MAX_RETRIES);
 
-    // Release mutex 
+    // Release mutex
     xSemaphoreGive(zbCmdMutex);
 }
