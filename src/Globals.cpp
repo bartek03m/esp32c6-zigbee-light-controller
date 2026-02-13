@@ -1,8 +1,7 @@
 #include "Globals.h"
 
 bool lightState = false;
-ZigbeeEP *myEP = NULL;
-uint16_t targetZigbeeAddress = 0xFFFF;
+ZigbeeSwitch *mySwitch = NULL;
 Preferences preferences;
 WebServer server(80);
 

@@ -13,8 +13,6 @@ void initZigbee()
 {
     // Preferences init
     preferences.begin("zb_config", false);
-    // Read stored target address, default to broadcast if not set
-    targetZigbeeAddress = preferences.getUShort("addr", 0xFFFF);
 
     delay(2000);
 
@@ -32,98 +30,90 @@ void initZigbee()
     Zigbee.setPrimaryChannelMask(channel_mask);
     delay(2000);
 
-    // Create endpoint
-    myEP = new ZigbeeEP(1);
+    // Create ZigbeeSwitch endpoint — this properly configures ON/OFF clusters
+    // so that binding with Sonoff (or any ON/OFF light) works automatically
+    mySwitch = new ZigbeeSwitch(1);
 
     // Add to main Zigbee object
-    Zigbee.addEndpoint(myEP);
+    Zigbee.addEndpoint(mySwitch);
 
     // Start as a coordinator
     if (!Zigbee.begin(ZIGBEE_COORDINATOR, pairing))
     {
-        // Serial.println("Zigbee start error");
+        Serial.println("[ZB] !!! Zigbee start FAILED !!!");
         while (1)
             delay(100);
     }
-    // Serial.println("Zigbee started");
+    Serial.println("[ZB] Zigbee started OK");
+
     // coexistence WiFi + Zigbee
     esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
     esp_err_t coex_err = esp_coex_wifi_i154_enable();
+    Serial.printf("[ZB] Coex enable result: %d (0=OK)\n", coex_err);
 
     // If pairing mode active, open network for joining
     if (pairing)
     {
-        Zigbee.openNetwork(30); // Open network for 30 seconds
+        Serial.println("[ZB] PAIRING MODE - network open for 180s");
+        Zigbee.openNetwork(180); // Open network for 180 seconds (more time!)
         digitalWrite(LED_PIN, HIGH);
-        delay(30000); // wait for 30 seconds to get stable connection (WiFI can interrupt Zigbee connection at this time)
+        delay(180000); // wait for 180 seconds to allow full pairing + binding
         digitalWrite(LED_PIN, LOW);
-    }
-    delay(2000);
-}
+        Serial.println("[ZB] Pairing window closed");
 
-// Check for bound devices and update target address
-void updateTargetAddress()
-{
-    // We check if we have an endpoint created
-    if (myEP != NULL)
-    {
-        // Get the list of bound devices from the endpoint
-        std::list<zb_device_params_t *> devices = myEP->getBoundDevices();
-
-        if (!devices.empty())
+        // Log binding result
+        if (mySwitch->bound())
         {
-            // Get the first device from the list
-            zb_device_params_t *device = devices.front();
-
-            // If the device has a valid short address, update our target address
-            if (device->short_addr != 0 && device->short_addr != 0xFFFF && device->short_addr != targetZigbeeAddress)
+            Serial.println("[ZB] Device BOUND successfully!");
+            std::list<zb_device_params_t *> devices = mySwitch->getBoundDevices();
+            for (auto dev : devices)
             {
-                targetZigbeeAddress = device->short_addr;
-
-                // Store the new target address in preferences
-                preferences.putUShort("addr", targetZigbeeAddress);
+                Serial.printf("[ZB]   -> addr=0x%04X, endpoint=%d\n", dev->short_addr, dev->endpoint);
             }
         }
+        else
+        {
+            Serial.println("[ZB] WARNING: No device bound after pairing window!");
+        }
     }
+    delay(2000);
+    Serial.println("[ZB] initZigbee complete");
 }
 
-// Send ON/OFF command to Zigbee device
+// Send ON/OFF command to Zigbee device using ZigbeeSwitch API
 void sendZigbeeCommand(uint8_t commandId)
 {
-    // Declare a structure variable to hold the On/Off command request parameters
-    esp_zb_zcl_on_off_cmd_t cmd_req;
-
-    // Zero out the structure memory
-    memset(&cmd_req, 0, sizeof(cmd_req));
-
-    // Set the source endpoint to 1
-    cmd_req.zcl_basic_cmd.src_endpoint = 1;
-
-    // Set the addressing mode depending on address type
-    if (targetZigbeeAddress == 0xFFFF)
+    if (!mySwitch->bound())
     {
-        // Broadcast if we don't know the Sonoff address yet
-        cmd_req.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
-        // Serial.println("Sending BROADCAST (0xFFFF)");
+        Serial.printf("[ZB-CMD] NOT BOUND - cannot send cmd=%d | t=%lus\n", commandId, millis() / 1000);
+        return;
+    }
+
+    // Get the bound device's address and endpoint
+    std::list<zb_device_params_t *> devices = mySwitch->getBoundDevices();
+    if (devices.empty())
+    {
+        Serial.println("[ZB-CMD] No bound devices found!");
+        return;
+    }
+    zb_device_params_t *dev = devices.front();
+
+    Serial.printf("[ZB-CMD] Sending cmd=%d to 0x%04X ep=%d | heap=%u | t=%lus\n",
+                  commandId, dev->short_addr, dev->endpoint, esp_get_free_heap_size(), millis() / 1000);
+
+    // Use explicit unicast with device address (not binding table mode)
+    if (commandId == ESP_ZB_ZCL_CMD_ON_OFF_ON_ID)
+    {
+        mySwitch->lightOn(dev->endpoint, dev->short_addr);
+    }
+    else if (commandId == ESP_ZB_ZCL_CMD_ON_OFF_OFF_ID)
+    {
+        mySwitch->lightOff(dev->endpoint, dev->short_addr);
     }
     else
     {
-        // Unicast if we have a specific Sonoff address
-        cmd_req.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
-        // Serial.printf("Sending UNICAST to 0x%04x\n", targetZigbeeAddress);
+        mySwitch->lightToggle(dev->endpoint, dev->short_addr);
     }
 
-    // Set the specific command ID to 'Toggle' (switch state)
-    cmd_req.on_off_cmd_id = commandId;
-
-    // Set destination address to 0xFFFF (Broadcast to all routers and end devices - we have only one so it works fine)
-    cmd_req.zcl_basic_cmd.dst_addr_u.addr_short = targetZigbeeAddress;
-
-    // Set the destination endpoint to 1 (Sonoff devices typically listen on endpoint 1)
-    cmd_req.zcl_basic_cmd.dst_endpoint = 1;
-
-    // Execute the Zigbee On/Off command request using the configured structure
-    esp_zb_lock_acquire(portMAX_DELAY);
-    esp_zb_zcl_on_off_cmd_req(&cmd_req);
-    esp_zb_lock_release();
+    Serial.println("[ZB-CMD] Command sent OK (unicast)");
 }

@@ -4,10 +4,10 @@
 #include <Zigbee.h>
 #include <Preferences.h>
 #include "esp_zigbee_core.h"
+#include "ep/ZigbeeSwitch.h"
 
 extern bool lightState;
-extern ZigbeeEP *myEP;
-extern uint16_t targetZigbeeAddress;
+extern ZigbeeSwitch *mySwitch;
 extern Preferences preferences;
 extern WebServer server;
 

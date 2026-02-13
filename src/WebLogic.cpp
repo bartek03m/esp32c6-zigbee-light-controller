@@ -141,16 +141,14 @@ void initWiFi()
     WiFi.setSleep(false);
     esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
 
+    Serial.print("[WiFi] Connecting");
     while (WiFi.status() != WL_CONNECTED)
     {
         delay(500);
-        // Serial.print(".");
+        Serial.print(".");
     }
 
-    // IP
-    // Serial.println("\nWiFi Connected!");
-    // Serial.print("IP: ");
-    // Serial.println(WiFi.localIP());
+    Serial.printf("\n[WiFi] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
 
     // mDNS
     if (MDNS.begin("light"))
@@ -181,18 +179,18 @@ void handleRoot()
 // Handler for turning light ON
 void handleLightOn()
 {
+    Serial.printf("[WEB] /on request | t=%lus\n", millis() / 1000);
     sendZigbeeCommand(ESP_ZB_ZCL_CMD_ON_OFF_ON_ID);
     lightState = true;
-    // Serial.println("Light ON");
     server.send(200, "text/plain", "OK");
 }
 
 // Handler for turning light OFF
 void handleLightOff()
 {
+    Serial.printf("[WEB] /off request | t=%lus\n", millis() / 1000);
     sendZigbeeCommand(ESP_ZB_ZCL_CMD_ON_OFF_OFF_ID);
     lightState = false;
-    // Serial.println("Light OFF");
     server.send(200, "text/plain", "OK");
 }
 

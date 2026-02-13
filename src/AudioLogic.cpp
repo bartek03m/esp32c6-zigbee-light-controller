@@ -133,6 +133,8 @@ void audioTask(void *parameter)
                     if (clapCount == 3)
                     {
                         lightState = !lightState;
+                        Serial.printf("[AUDIO] 3 claps! Toggle -> %s | t=%lus\n",
+                                      lightState ? "ON" : "OFF", millis() / 1000);
 
                         if (lightState)
                         {
