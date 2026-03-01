@@ -41,12 +41,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         .btn-on { color: var(--primary); border-color: var(--primary); box-shadow: inset 0 0 10px var(--primary-dim); } .btn-off { color: var(--alert); border-color: var(--alert); box-shadow: inset 0 0 10px var(--alert-dim); }
         .btn::before { content: ''; position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent); transition: 0.5s; }
         .btn:hover::before { left: 100%; } .btn:hover { letter-spacing: 2px; } .btn-on:hover { background: var(--primary-dim); box-shadow: 0 0 20px var(--primary); } .btn-off:hover { background: var(--alert-dim); box-shadow: 0 0 20px var(--alert); } .btn:active { transform: scale(0.95); }
-        .sensitivity-panel { margin-top: 25px; border: 1px solid var(--primary-dim); padding: 15px; position: relative; }
-        .sensitivity-panel::before { content: 'CZUŁOŚĆ MIKROFONU'; position: absolute; top: -10px; left: 15px; background: var(--panel); padding: 0 8px; font-size: 11px; color: var(--primary); letter-spacing: 2px; }
-        .slider-container { display: flex; align-items: center; gap: 15px; margin-top: 10px; }
-        .slider-container input[type=range] { flex: 1; -webkit-appearance: none; appearance: none; height: 4px; background: var(--grid); outline: none; border: 1px solid var(--primary-dim); }
-        .slider-container input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; background: var(--primary); cursor: pointer; border: none; box-shadow: 0 0 10px var(--primary); }
-        .sens-value { font-size: 20px; color: var(--primary); min-width: 60px; text-align: right; text-shadow: 0 0 5px var(--primary); }
+
         footer { margin-top: 30px; border-top: 1px solid #333; padding-top: 10px; display: flex; justify-content: space-between; font-size: 10px; color: #555; text-transform: uppercase; }
         .blink { animation: blinker 1s linear infinite; }
         @keyframes spin { 100% { transform: rotate(360deg); } } @keyframes pulse { 0% { opacity: 0.8; transform: scale(0.95); } 50% { opacity: 1; transform: scale(1.05); } 100% { opacity: 0.8; transform: scale(0.95); } } @keyframes blinker { 50% { opacity: 0; } }
@@ -68,14 +63,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             <button class="btn btn-on" onclick="setPower(true)">AKTYWUJ</button>
             <button class="btn btn-off" onclick="setPower(false)">DEZAKTYWUJ</button>
         </div>
-        <div class="sensitivity-panel">
-            <div class="slider-container">
-                <span style="font-size:11px;color:#555;">WYSOKA</span>
-                <input type="range" id="sensSlider" min="2000" max="20000" step="500" value="8500" oninput="updateSens(this.value)" onchange="saveSens(this.value)">
-                <span style="font-size:11px;color:#555;">NISKA</span>
-                <span class="sens-value" id="sensVal">8500</span>
-            </div>
-        </div>
+
         <footer><div>SYS.VER. 25.09</div><div><span class="blink">▮</span></div></footer>
     </div>
     <script>
@@ -120,9 +108,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         function pollStatus() { fetch('/status').then(r => r.text()).then(v => { updateUI(v === '1'); }).catch(e => {}); }
         pollStatus();
         setInterval(pollStatus, 2000);
-        function updateSens(v) { document.getElementById('sensVal').textContent = v; }
-        function saveSens(v) { fetch('/sensitivity?val=' + v).catch(e => console.log('Blad')); }
-        fetch('/sensitivity').then(r => r.text()).then(v => { document.getElementById('sensSlider').value = v; document.getElementById('sensVal').textContent = v; }).catch(e => console.log('Blad'));
+
     </script>
 </body>
 </html>
@@ -159,12 +145,8 @@ void initWiFi()
     server.on("/", handleRoot);
     server.on("/on", handleLightOn);
     server.on("/off", handleLightOff);
-    server.on("/sensitivity", handleSensitivity);
     server.on("/status", handleStatus);
     server.onNotFound(handleNotFound);
-
-    // Load saved mic sensitivity from Preferences
-    micSensitivity = preferences.getInt("mic_sens", 8500);
 
     server.begin();
     // Serial.println("Serwer HTTP active");
@@ -194,24 +176,6 @@ void handleLightOff()
     server.send(200, "text/plain", "OK");
 }
 
-// Handler for microphone sensitivity GET/SET
-void handleSensitivity()
-{
-    if (server.hasArg("val"))
-    {
-        int32_t val = server.arg("val").toInt();
-        if (val >= 2000 && val <= 20000)
-        {
-            micSensitivity = val;
-            preferences.putInt("mic_sens", val);
-        }
-        server.send(200, "text/plain", "OK");
-    }
-    else
-    {
-        server.send(200, "text/plain", String(micSensitivity));
-    }
-}
 
 // Handler for light status
 void handleStatus()

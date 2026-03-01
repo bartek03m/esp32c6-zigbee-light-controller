@@ -11,4 +11,4 @@ unsigned long soundStartTime = 0;
 unsigned long lastLoudMoment = 0;
 bool isSoundActive = false;
 int32_t maxAmpDuringEvent = 0;
-int32_t micSensitivity = 8500;
+int32_t micSensitivity = 8000;
