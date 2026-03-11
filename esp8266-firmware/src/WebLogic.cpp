@@ -1,11 +1,9 @@
 #include "WebLogic.h"
 #include "Globals.h"
 #include "Constants.h"
-#include "ZigbeeLogic.h"
-#include <WiFi.h>
-#include <ESPmDNS.h>
-#include <esp_coexist.h>
-#include "zcl/esp_zigbee_zcl_common.h"
+#include "UartComm.h"
+#include <ESP8266WiFi.h>
+#include <ESP8266mDNS.h>
 
 // Website by Google Gemini saved in flash memory
 const char index_html[] PROGMEM = R"rawliteral(
@@ -119,13 +117,8 @@ void initWiFi()
 {
     /* WiFi Website */
     WiFi.mode(WIFI_STA);
-    // Serial.println("\n--- SYSTEM START ---");
-    // Serial.print("Connecting to WiFi: ");
-    // Serial.println(ssid);
     WiFi.begin(ssid, password);
-
-    WiFi.setSleep(false);
-    esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+    WiFi.setSleepMode(WIFI_NONE_SLEEP); // Zeby serwer nie zamulal
 
     Serial.print("[WiFi] Connecting");
     while (WiFi.status() != WL_CONNECTED)
@@ -139,7 +132,8 @@ void initWiFi()
     // mDNS
     if (MDNS.begin("light"))
     {
-        // Serial.println("MDNS: http://light.local");
+        Serial.println("[mDNS] Responder started: http://light.local");
+        MDNS.addService("http", "tcp", 80);
     }
 
     server.on("/", handleRoot);
@@ -149,7 +143,7 @@ void initWiFi()
     server.onNotFound(handleNotFound);
 
     server.begin();
-    // Serial.println("Serwer HTTP active");
+    Serial.println("[WEB] Serwer HTTP active");
 }
 
 // Handler for root path
@@ -161,8 +155,8 @@ void handleRoot()
 // Handler for turning light ON
 void handleLightOn()
 {
-    Serial.printf("[WEB] /on request | t=%lus\n", millis() / 1000);
-    sendZigbeeCommand(ESP_ZB_ZCL_CMD_ON_OFF_ON_ID);
+    Serial.println("[WEB] /on request -> Sending UART CMD");
+    sendCommand(true);
     lightState = true;
     server.send(200, "text/plain", "OK");
 }
@@ -170,12 +164,11 @@ void handleLightOn()
 // Handler for turning light OFF
 void handleLightOff()
 {
-    Serial.printf("[WEB] /off request | t=%lus\n", millis() / 1000);
-    sendZigbeeCommand(ESP_ZB_ZCL_CMD_ON_OFF_OFF_ID);
+    Serial.println("[WEB] /off request -> Sending UART CMD");
+    sendCommand(false);
     lightState = false;
     server.send(200, "text/plain", "OK");
 }
-
 
 // Handler for light status
 void handleStatus()

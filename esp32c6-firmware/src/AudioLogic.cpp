@@ -2,6 +2,7 @@
 #include "Globals.h"
 #include "Constants.h"
 #include "ZigbeeLogic.h"
+#include "UartComm.h"
 #include <driver/i2s.h>
 #include "zcl/esp_zigbee_zcl_common.h"
 
@@ -144,6 +145,8 @@ void audioTask(void *parameter)
                         {
                             sendZigbeeCommand(ESP_ZB_ZCL_CMD_ON_OFF_OFF_ID);
                         }
+                        // Notify ESP8266 about the new state
+                        sendStatus(lightState);
                         clapCount = 0;
                         // Start cooldown
                         lastToggleTime = millis();

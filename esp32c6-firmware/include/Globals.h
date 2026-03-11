@@ -1,6 +1,5 @@
 #pragma once
 #include <Arduino.h>
-#include <WebServer.h>
 #include <Zigbee.h>
 #include <Preferences.h>
 #include "esp_zigbee_core.h"
@@ -9,7 +8,6 @@
 extern bool lightState;
 extern ZigbeeSwitch *mySwitch;
 extern Preferences preferences;
-extern WebServer server;
 
 // Audio globals
 extern int clapCount;

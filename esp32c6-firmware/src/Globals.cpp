@@ -3,7 +3,6 @@
 bool lightState = false;
 ZigbeeSwitch *mySwitch = NULL;
 Preferences preferences;
-WebServer server(80);
 
 int clapCount = 0;
 unsigned long firstClapTime = 0;
