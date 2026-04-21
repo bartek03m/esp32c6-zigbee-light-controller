@@ -56,9 +56,6 @@ Since the project is now split, you must flash both boards separately.
 ## Known Issues
 - **PlatformIO on Windows (Path too long):** Fix by setting `PLATFORMIO_CORE_DIR` to a short path like `C:\pio` or enabling long paths in Windows Registry.
 
-## Demo
-[![Watch the video](https://img.youtube.com/vi/l5wtVaWdWzQ/hqdefault.jpg)](https://youtu.be/l5wtVaWdWzQ)
-
 ## UI Screenshot
 <img src="./doc/UI.png" alt="ui" width="600"/>
 
