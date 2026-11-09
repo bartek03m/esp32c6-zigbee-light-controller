@@ -1,0 +1,40 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [esp32c6-firmware, esp8266-firmware]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: pio-${{ matrix.project }}-${{ hashFiles(format('{0}/platformio.ini', matrix.project)) }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Create placeholder WiFi credentials
+        if: matrix.project == 'esp8266-firmware'
+        run: cp esp8266-firmware/include/Secrets.example.h esp8266-firmware/include/Secrets.h
+
+      - name: Build ${{ matrix.project }}
+        run: pio run -d ${{ matrix.project }}
