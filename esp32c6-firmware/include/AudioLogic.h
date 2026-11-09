@@ -1,3 +1,4 @@
+// I2S microphone and clap detection.
 #pragma once
 #include <Arduino.h>
 

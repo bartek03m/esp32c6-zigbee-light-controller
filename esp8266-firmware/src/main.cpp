@@ -1,3 +1,4 @@
+// ESP8266 entry point: WiFi, web server and UART bridge to the ESP32-C6.
 #include <Arduino.h>
 #include <ESP8266mDNS.h>
 #include "Globals.h"
@@ -11,11 +12,11 @@ void setup()
     delay(500);
     Serial.println("\n=== ESP8266: Web Server + WiFi ===");
     
-    // Upewnij sie ze ustawiles ssid i haslo w Constants.h!
+    // Make sure WiFi credentials are set in include/Secrets.h
     initWiFi();   // Initialize WiFi and Web Server
 }
 
-// Diagnostic timer
+// Timestamp of the last diagnostic check
 static unsigned long lastDiag = 0;
 
 // Main processing loop
@@ -34,12 +35,15 @@ void loop()
     if (millis() - lastDiag > 5000)
     {
         lastDiag = millis();
-        // Sprawdzamy czy WiFi dalej trybi
-        if (WiFi.status() == WL_CONNECTED) {
-            // Uncomment if you want spam
-            // Serial.printf("[DIAG] t=%lus | heap=%u | light=%s\n", 
+        // Check that WiFi is still connected, reconnect if not
+        if (WiFi.status() == WL_CONNECTED)
+        {
+            // Uncomment for periodic status logs (verbose)
+            // Serial.printf("[DIAG] t=%lus | heap=%u | light=%s\n",
             //               millis() / 1000, ESP.getFreeHeap(), lightState ? "ON" : "OFF");
-        } else {
+        }
+        else
+        {
             Serial.println("[DIAG] !!! WiFi disconnected !!! Reconnecting...");
             WiFi.reconnect();
         }

@@ -1,3 +1,4 @@
+// WiFi connection, mDNS (light.local) and HTTP endpoints for the web UI.
 #include "WebLogic.h"
 #include "Globals.h"
 #include "Constants.h"
@@ -5,7 +6,8 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
 
-// Website by Google Gemini saved in flash memory
+// Web UI page, stored in flash (PROGMEM) to save RAM.
+// It polls /status every 2 s so the UI stays in sync with clap toggles.
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="pl">
@@ -76,12 +78,12 @@ const char index_html[] PROGMEM = R"rawliteral(
                 reactor.classList.add('active');
                 txtOn.style.display = 'inline'; txtOff.style.display = 'none';
                 playSound(440, 'triangle');
-                fetch('/on').catch(e => console.log('Blad polaczenia'));
+                fetch('/on').catch(e => console.log('Connection error'));
             } else {
                 reactor.classList.remove('active');
                 txtOn.style.display = 'none'; txtOff.style.display = 'inline';
                 playSound(150, 'sawtooth');
-                fetch('/off').catch(e => console.log('Blad polaczenia'));
+                fetch('/off').catch(e => console.log('Connection error'));
             }
         }
 
@@ -118,7 +120,7 @@ void initWiFi()
     /* WiFi Website */
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
-    WiFi.setSleepMode(WIFI_NONE_SLEEP); // Zeby serwer nie zamulal
+    WiFi.setSleepMode(WIFI_NONE_SLEEP); // Disable modem sleep so the server responds without lag
 
     Serial.print("[WiFi] Connecting");
     while (WiFi.status() != WL_CONNECTED)
@@ -129,13 +131,14 @@ void initWiFi()
 
     Serial.printf("\n[WiFi] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
 
-    // mDNS
+    // mDNS: makes the device reachable as http://light.local
     if (MDNS.begin("light"))
     {
         Serial.println("[mDNS] Responder started: http://light.local");
         MDNS.addService("http", "tcp", 80);
     }
 
+    // HTTP routes
     server.on("/", handleRoot);
     server.on("/on", handleLightOn);
     server.on("/off", handleLightOff);
@@ -143,7 +146,7 @@ void initWiFi()
     server.onNotFound(handleNotFound);
 
     server.begin();
-    Serial.println("[WEB] Serwer HTTP active");
+    Serial.println("[WEB] HTTP server active");
 }
 
 // Handler for root path
@@ -170,7 +173,7 @@ void handleLightOff()
     server.send(200, "text/plain", "OK");
 }
 
-// Handler for light status
+// Handler for light status: returns "1" (ON) or "0" (OFF)
 void handleStatus()
 {
     server.send(200, "text/plain", lightState ? "1" : "0");

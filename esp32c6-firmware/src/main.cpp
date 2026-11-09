@@ -1,3 +1,4 @@
+// ESP32-C6 entry point: Zigbee coordinator, clap detection and UART link to the ESP8266.
 #include <Arduino.h>
 #include "Globals.h"
 #include "Constants.h"

@@ -1,3 +1,4 @@
+// Zigbee coordinator: pairing, storing the bound device and sending ON/OFF commands.
 #include "ZigbeeLogic.h"
 #include "Globals.h"
 #include "Constants.h"
@@ -8,11 +9,12 @@
 #include "esp_coexist.h"
 #include <list>
 
+// Bound device (the Sonoff), persisted in flash so pairing is needed only once
 static esp_zb_ieee_addr_t savedIeeeAddr = {0};
 static uint8_t savedEndpoint = 1;
 static bool hasSavedDevice = false;
 
-// Thread safety: mutex prevents audio task and web handler from colliding
+// Thread safety: mutex prevents the audio task and UART commands from colliding
 static SemaphoreHandle_t zbCmdMutex = NULL;
 static unsigned long lastCmdTime = 0;
 static const unsigned long MIN_CMD_INTERVAL = 300; // min 300ms between commands
@@ -66,6 +68,8 @@ void initZigbee()
     // Create mutex for thread-safe command sending
     zbCmdMutex = xSemaphoreCreateMutex();
 
+    // Give the user time to press BOOT after reset. GPIO9 is a strapping pin,
+    // so holding it while the board powers up would enter download mode instead.
     delay(2000);
 
     pinMode(BUTTON_PIN, INPUT_PULLUP); // Boot button for pairing mode
@@ -77,7 +81,7 @@ void initZigbee()
     }
 
     /* Zigbee */
-    // Set channel Zigbee to 25
+    // Set Zigbee channel to 25 (above the common 2.4 GHz WiFi channels, less interference)
     uint32_t channel_mask = (1 << 25);
     Zigbee.setPrimaryChannelMask(channel_mask);
     delay(2000);
@@ -98,7 +102,7 @@ void initZigbee()
     }
     Serial.println("[ZB] Zigbee started OK");
 
-    // coexistence WiFi + Zigbee
+    // WiFi + Zigbee coexistence (kept from the single-board version, harmless without WiFi)
     esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
     esp_err_t coex_err = esp_coex_wifi_i154_enable();
     Serial.printf("[ZB] Coex enable result: %d (0=OK)\n", coex_err);
@@ -109,7 +113,7 @@ void initZigbee()
         Serial.println("[ZB] PAIRING MODE - network open for 180s");
         Zigbee.openNetwork(180); // Open network for 180 seconds
         digitalWrite(LED_PIN, HIGH);
-        delay(180000); // wait for pairing + binding
+        delay(180000); // wait for pairing + binding (blocks startup on purpose)
         digitalWrite(LED_PIN, LOW);
         Serial.println("[ZB] Pairing window closed");
 

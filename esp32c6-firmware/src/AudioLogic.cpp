@@ -1,3 +1,4 @@
+// I2S microphone input and triple-clap detection, running in its own FreeRTOS task.
 #include "AudioLogic.h"
 #include "Globals.h"
 #include "Constants.h"
@@ -10,9 +11,9 @@
 static const int AUDIO_BATCH_SIZE = 256;
 static int32_t sampleBuffer[AUDIO_BATCH_SIZE];
 
-// Cooldown after toggling
+// Cooldown after toggling, so the relay click or echo is not counted as a new clap
 static unsigned long lastToggleTime = 0;
-static const unsigned long TOGGLE_COOLDOWN = 1500;
+static const unsigned long TOGGLE_COOLDOWN = 1500; // ms
 
 // FreeRTOS task handle
 static TaskHandle_t audioTaskHandle = NULL;
@@ -23,9 +24,9 @@ void initAudio()
     /* I2S Configuration */
     const i2s_config_t i2s_config = {
         .mode = i2s_mode_t(I2S_MODE_MASTER | I2S_MODE_RX),
-        .sample_rate = 44100,
+        .sample_rate = 44100, // Standard audio rate, plenty for detecting short peaks
         .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT,
-        .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
+        .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT, // Mic LR pin tied to GND = left channel
         .communication_format = I2S_COMM_FORMAT_STAND_I2S,
         .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
         .dma_buf_count = 8,
@@ -79,6 +80,7 @@ void audioTask(void *parameter)
             int maxAmplitude = 0;
             for (int i = 0; i < samplesRead; i++)
             {
+                // Samples arrive left-aligned in 32 bits; shift down to a usable amplitude range
                 int32_t raw = sampleBuffer[i] >> 14;
                 int amplitude = abs(raw);
                 if (amplitude > maxAmplitude)
@@ -113,7 +115,8 @@ void audioTask(void *parameter)
 
                 bool validClap = false;
 
-                // Check if it looks like a clap
+                // Check if it looks like a clap: a short sound (5 ms to MAX_CLAP_DURATION),
+                // or an even shorter but loud spike
                 if (duration >= 5 && duration <= MAX_CLAP_DURATION)
                 {
                     validClap = true;

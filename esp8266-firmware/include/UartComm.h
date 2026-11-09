@@ -1,3 +1,4 @@
+// UART link to the ESP32-C6 (commands out, status in).
 #pragma once
 #include <Arduino.h>
 

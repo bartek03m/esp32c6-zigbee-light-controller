@@ -1,3 +1,4 @@
+// UART link to the ESP8266 (commands in, status out).
 #pragma once
 #include <Arduino.h>
 
