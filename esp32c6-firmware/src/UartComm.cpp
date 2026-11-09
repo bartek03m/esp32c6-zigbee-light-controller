@@ -1,3 +1,6 @@
+// Line-based UART protocol with the ESP8266.
+// Receives: CMD:ON / CMD:OFF
+// Sends:    STATUS:ON / STATUS:OFF
 #include "UartComm.h"
 #include "Globals.h"
 #include "Constants.h"
@@ -7,12 +10,14 @@
 // Buffer for incoming UART data
 static String uartBuffer = "";
 
+// Initialize UART1 on the pins defined in Constants.h
 void initUart()
 {
     Serial1.begin(UART_BAUD, SERIAL_8N1, UART_RX_PIN, UART_TX_PIN);
     Serial.println("[UART] Initialized on TX=" + String(UART_TX_PIN) + " RX=" + String(UART_RX_PIN));
 }
 
+// Read complete lines from the ESP8266 and execute ON/OFF commands
 void processUartCommands()
 {
     while (Serial1.available())
@@ -36,10 +41,12 @@ void processUartCommands()
                 sendZigbeeCommand(ESP_ZB_ZCL_CMD_ON_OFF_OFF_ID);
                 sendStatus(lightState);
             }
-            else
+            else if (uartBuffer.startsWith("CMD:"))
             {
                 Serial.println("[UART] Unknown command: " + uartBuffer);
             }
+            // Any other line is a debug log or boot message from the ESP8266
+            // (it shares this UART), so it is silently ignored.
 
             uartBuffer = "";
         }
@@ -50,6 +57,7 @@ void processUartCommands()
     }
 }
 
+// Report the current light state so the web UI stays in sync
 void sendStatus(bool state)
 {
     String msg = state ? "STATUS:ON" : "STATUS:OFF";
